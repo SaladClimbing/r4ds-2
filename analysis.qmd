@@ -1,0 +1,188 @@
+---
+title: "Analyzing US Births and Basketball Recruits"
+format: html
+author: "Andrew Lucas"
+execute:
+  echo: false
+---
+
+```{r}
+#| label: setup
+#| message: false
+
+library(tidyverse)
+library(readxl)
+```
+
+```{r}
+#| label: data-structure
+
+births <- read_excel("data/us_births_1994_2014.xlsx")
+
+births_structure <- tibble(
+  column = names(births),
+  type = map_chr(births, ~ class(.x)[1]),
+  example_values = map_chr(births, ~ paste(head(.x, 3), collapse = ", "))
+)
+
+births_structure
+```
+
+```{r}
+#| label: summary-statistics
+
+summary(births |> select(births, year))
+```
+
+```{r}
+#| label: births-tibble-structure
+#| cache: true
+
+births_tibble <- births |>
+  mutate(
+    day_of_week = factor(
+      day_of_week,
+      levels = c("Sun", "Mon", "Tues", "Wed", "Thurs", "Fri", "Sat"),
+      ordered = TRUE
+    )
+  )
+```
+
+```{r}
+#| label: average-births-by-calendar-position
+
+births_by_calendar_position <- births_tibble |>
+  group_by(month, date_of_month) |>
+  summarise(
+    average_births = mean(births),
+    .groups = "drop"
+  )
+
+births_by_calendar_position
+```
+
+```{r}
+#| label: births-calendar-heatmap
+
+births_by_calendar_position |>
+  mutate(
+    month = factor(
+      month,
+      levels = 12:1,
+      labels = month.name[12:1],
+      ordered = TRUE
+    )
+  ) |>
+  ggplot(aes(x = date_of_month, y = month, fill = average_births)) +
+  geom_tile() +
+  scale_x_continuous(breaks = seq(1, 31, by = 2)) +
+  scale_fill_viridis_c(name = "Mean births") +
+  labs(
+    x = "Day of month",
+    y = "Month"
+  )
+```
+
+```{r}
+#| label: christmas-births-comparison
+
+christmas_data <- births_tibble |>
+  filter(
+    month == 12,
+    date_of_month %in% c(20:24, 25, 27:30)
+  ) |>
+  group_by(year) |>
+  summarise(
+    weekday = day_of_week[date_of_month == 25],
+    christmas_births = births[date_of_month == 25],
+    baseline_births = mean(births[date_of_month %in% c(20:24, 27:30)]),
+    pct_of_baseline = christmas_births / baseline_births * 100,
+    .groups = "drop"
+  )
+```
+
+```{r}
+#| label: christmas-data-summary
+
+summary(christmas_data)
+```
+
+```{r}
+#| label: christmas-pct-by-year
+
+ggplot(christmas_data, aes(x = year, y = pct_of_baseline)) +
+  geom_line() +
+  geom_point(aes(color = weekday)) +
+  labs(
+    x = "Year",
+    y = "Christmas births as percent of baseline"
+  )
+```
+
+```{r}
+#| label: births-model
+
+births_model <- lm(
+  births ~ year + month + day_of_week,
+  data = births_tibble
+)
+
+summary(births_model)$r.squared
+```
+
+```{r}
+#| label: births-adjusted
+
+births_adjusted <- births_tibble |>
+  mutate(
+    pct_resid = resid(births_model) / mean(births) * 100
+  )
+```
+
+```{r}
+#| label: births-adjusted-structure
+
+str(births_adjusted)
+```
+
+```{r}
+#| label: calendar-resid
+
+calendar_resid <- births_adjusted |>
+  filter(!(month == 2 & date_of_month == 29)) |>
+  group_by(month, date_of_month) |>
+  summarise(
+    mean_pct_resid = mean(pct_resid),
+    .groups = "drop"
+  ) |>
+  mutate(calendar_date = make_date(2001, month, date_of_month)) |>
+  arrange(calendar_date)
+
+calendar_resid
+```
+
+```{r}
+#| label: calendar-resid-line-chart
+
+holiday_labels <- tibble(
+  calendar_date = as.Date(c("2001-01-01", "2001-12-24", "2001-12-25")),
+  holiday = c("New Year's Day", "Christmas Eve", "Christmas")
+) |>
+  left_join(calendar_resid, by = "calendar_date")
+
+ggplot(calendar_resid, aes(x = calendar_date, y = mean_pct_resid)) +
+  geom_line() +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  geom_text(
+    data = holiday_labels,
+    aes(label = holiday),
+    nudge_y = 3,
+    hjust = 0
+  ) +
+  labs(
+    title = "Fewer Babies Are Born on Holidays",
+    subtitle = "US births relative to year-, month-, and weekday-adjusted basline (1994-2014)",
+    x = "Calendar date",
+    y = "Mean residual (%)"
+  )
+```
