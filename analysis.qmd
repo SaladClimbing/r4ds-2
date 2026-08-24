@@ -186,3 +186,81 @@ ggplot(calendar_resid, aes(x = calendar_date, y = mean_pct_resid)) +
     y = "Mean residual (%)"
   )
 ```
+
+```{r}
+#| label: nba-recruits-structure
+
+nba_recruits <- read_excel("data/nba_recruits.xlsx")
+
+nba_recruits_structure <- tibble(
+  column = names(nba_recruits),
+  type = map_chr(nba_recruits, ~ class(.x)[1]),
+  example_values = map_chr(
+    nba_recruits,
+    ~ paste(head(.x, 3), collapse = ", ")
+  )
+)
+
+nba_recruits_structure
+```
+
+```{r}
+#| label: basketball-tibble
+#| cache: true
+
+basketball_tibble <- nba_recruits |>
+  mutate(
+    tier = factor(
+      tier,
+      levels = c(
+        "Never played",
+        "Brief career",
+        "Solid career",
+        "All-Star level",
+        "Superstar"
+      ),
+      ordered = TRUE
+    ),
+    recruit_group = factor(
+      recruit_group,
+      levels = c(
+        "#1–10",
+        "#11–25",
+        "#26–50",
+        "#51–100",
+        "Outside top 100"
+      ),
+      ordered = TRUE
+    )
+  )
+```
+
+```{r}
+#| label: career-tier-by-recruit-group
+
+basketball_tibble |>
+  filter(!is.na(rank), !is.na(top_mean_wa)) -> basketball_plot_data
+
+notable_players <- basketball_plot_data |>
+  slice_max(top_mean_wa, n = 4, with_ties = FALSE)
+
+ggplot(basketball_plot_data, aes(x = rank, y = top_mean_wa, color = tier)) +
+  geom_point() +
+  geom_smooth(
+    aes(group = 1),
+    method = "lm",
+    se = FALSE,
+    color = "black"
+  ) +
+  geom_text(
+    data = notable_players,
+    aes(label = name),
+    nudge_y = 1,
+    show.legend = FALSE
+  ) +
+  labs(
+    x = "Recruit rank",
+    y = "Peak Wins Added",
+    color = "Career tier"
+  )
+```
